@@ -28,6 +28,12 @@ const extractBearerToken = (headers: FastifyRequest["headers"]) => {
 };
 
 const mask = (value?: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
+const maskEmail = (value?: string) => {
+  if (!value) return "";
+  const [name, domain] = value.split("@");
+  if (!domain) return mask(value);
+  return `${name.slice(0, 2)}***@${domain}`;
+};
 
 export const buildCreateLeadHandler =
   (fastify: FastifyInstance) =>
@@ -65,12 +71,33 @@ export const buildCreateLeadHandler =
     }
 
     const sm8 = createServiceM8Client(fastify.config);
+    const postWithLog = async (path: string, body: Record<string, unknown>) => {
+      try {
+        return await sm8.postJson(path, body);
+      } catch (err: any) {
+        fastify.log.error(
+          {
+            url: `${fastify.config.SERVICEM8_BASE_URL}${path}`,
+            body: {
+              ...body,
+              mobile: mask(body.mobile as string | undefined),
+              email: maskEmail(body.email as string | undefined),
+              value: mask(body.value as string | undefined),
+            },
+            servicem8_status: err?.status,
+            servicem8_body: err?.data,
+          },
+          "ServiceM8 request failed"
+        );
+        throw err;
+      }
+    };
 
     try {
       const name = `${first_name} ${last_name}`.trim();
       const uniqueName = `${name} (${mobile})`;
 
-      const companyCreate = await sm8.postJson("/company.json", {
+      const companyCreate = await postWithLog("/company.json", {
         name: uniqueName,
       });
 
@@ -93,7 +120,7 @@ export const buildCreateLeadHandler =
         "ServiceM8 create-lead payload metadata"
       );
 
-      const jobCreate = await sm8.postJson("/job.json", {
+      const jobCreate = await postWithLog("/job.json", {
         company_uuid,
         job_description: brandedDescription,
         job_address,
@@ -107,17 +134,25 @@ export const buildCreateLeadHandler =
         return reply.status(500).send({ ok: false, error: "servicem8_error" });
       }
 
-      await sm8.postJson("/jobcontact.json", {
+      await postWithLog("/jobcontact.json", {
         job_uuid,
-        first_name,
-        last_name,
-        mobile,
-        email,
+        type: "Mobile",
+        value: mobile,
+        name: name,
       });
+      if (email) {
+        await postWithLog("/jobcontact.json", {
+          job_uuid,
+          type: "Email",
+          value: email,
+          name: name,
+        });
+      }
 
-      await sm8.postJson("/jobactivity.json", {
+      await postWithLog("/jobactivity.json", {
         job_uuid,
         staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+        type: "note",
         note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nSummary: ${call_summary}\nDescription: ${job_description}`,
       });
 
