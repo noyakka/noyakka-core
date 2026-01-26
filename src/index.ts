@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import env from '@fastify/env';
 import { createServiceM8Client } from "./servicem8";
 import { buildCreateLeadHandler } from "./routes/vapi.create-lead";
+import { buildSendSmsHandler } from "./routes/vapi.send-sms";
 
 // Start server
 const start = async () => {
@@ -214,6 +215,9 @@ const start = async () => {
 
   // Vapi create-lead endpoint (job + contact + note)
   fastify.post("/vapi/create-lead", buildCreateLeadHandler(fastify));
+
+  // Vapi send-sms endpoint (logs SMS pending)
+  fastify.post("/vapi/send-sms", buildSendSmsHandler(fastify));
 
   try {
     const port = Number(process.env.PORT) || 3000;
