@@ -2,16 +2,12 @@ import axios from "axios";
 
 export function createServiceM8Client(env: {
   SERVICEM8_BASE_URL: string;
-  SERVICEM8_EMAIL: string;
-  SERVICEM8_PASSWORD: string;
+  SERVICEM8_API_KEY: string;
 }) {
   return axios.create({
     baseURL: env.SERVICEM8_BASE_URL,
-    auth: {
-      username: env.SERVICEM8_EMAIL,
-      password: env.SERVICEM8_PASSWORD,
-    },
     headers: {
+      "X-API-Key": env.SERVICEM8_API_KEY,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

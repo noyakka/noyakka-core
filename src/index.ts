@@ -17,13 +17,12 @@ const start = async () => {
   // Register env plugin
   const envSchema = {
     type: "object",
-    required: ["PORT", "VAPI_BEARER_TOKEN", "SERVICEM8_BASE_URL", "SERVICEM8_EMAIL", "SERVICEM8_PASSWORD"],
+    required: ["PORT", "VAPI_BEARER_TOKEN", "SERVICEM8_BASE_URL", "SERVICEM8_API_KEY"],
     properties: {
       PORT: { type: "string", default: "3000" },
       VAPI_BEARER_TOKEN: { type: "string" },
       SERVICEM8_BASE_URL: { type: "string" },
-      SERVICEM8_EMAIL: { type: "string" },
-      SERVICEM8_PASSWORD: { type: "string" }
+      SERVICEM8_API_KEY: { type: "string" }
     }
   };
 
@@ -92,33 +91,33 @@ const start = async () => {
 
     try {
       // ---- CREATE CUSTOMER ----
-      const customerRes = await sm8.post("/company.json", {
-        first_name,
-        last_name,
-        mobile,
-      });
+      const customerPayload = { first_name, last_name, mobile };
+      fastify.log.info({ customerPayload }, "ServiceM8 customer payload");
+      const customerRes = await sm8.post("/company.json", JSON.stringify(customerPayload));
 
       const company_uuid = customerRes.data.uuid;
 
       // ---- CREATE JOB ----
-      const jobRes = await sm8.post("/job.json", {
+      const jobPayload = {
         company_uuid,
         job_description,
         job_address,
         status: "Quote",
         generated_by: "Noyakka AI",
-      });
+      };
+      fastify.log.info({ jobPayload }, "ServiceM8 job payload");
+      const jobRes = await sm8.post("/job.json", JSON.stringify(jobPayload));
 
       const job_uuid = jobRes.data.uuid;
       const job_number = jobRes.data.job_number;
 
       // ---- ADD JOB NOTE ----
-      await sm8.post("/jobactivity.json", {
+      const notePayload = {
         job_uuid,
-        note: `📞 Booked by Noyakka AI
-Urgency: ${urgency}
-Description: ${job_description}`,
-      });
+        note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nDescription: ${job_description}`,
+      };
+      fastify.log.info({ notePayload }, "ServiceM8 note payload");
+      await sm8.post("/jobactivity.json", JSON.stringify(notePayload));
 
       return reply.send({
         ok: true,
