@@ -42,6 +42,18 @@ const start = async () => {
     dotenv: true
   });
 
+  const requiredEnv = [
+    "SERVICEM8_API_KEY",
+    "SERVICEM8_QUEUE_UUID",
+    "SERVICEM8_CATEGORY_UUID",
+  ] as const;
+  for (const key of requiredEnv) {
+    if (!fastify.config[key]) {
+      fastify.log.error({ missingEnv: key }, "Missing required ServiceM8 env var");
+      throw new Error(`Missing required ServiceM8 env var: ${key}`);
+    }
+  }
+
   const extractBearerToken = (headers: typeof fastify['raw']['headers']) => {
     const authHeader = headers.authorization;
     const authValue = Array.isArray(authHeader) ? authHeader[0] : authHeader || "";
@@ -93,6 +105,7 @@ const start = async () => {
     }
 
     const sm8 = createServiceM8Client(fastify.config);
+    const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
     try {
       // ServiceM8 /company.json expects "name" at minimum (not first_name/last_name)
@@ -135,14 +148,26 @@ const start = async () => {
       }
 
       const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
+      const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID;
+      const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID;
+
+      fastify.log.info(
+        {
+          queue_uuid,
+          category_uuid,
+          mobile: mask(mobile),
+          job_address: mask(job_address),
+        },
+        "ServiceM8 create-job payload metadata"
+      );
 
       const jobCreate = await sm8.postJson("/job.json", {
         company_uuid,
         job_description: brandedDescription,
         job_address,
         status: "Quote",
-        queue_uuid: fastify.config.SERVICEM8_QUEUE_UUID,
-        category_uuid: fastify.config.SERVICEM8_CATEGORY_UUID,
+        queue_uuid,
+        category_uuid,
       });
 
       const job_uuid = jobCreate.recordUuid;
@@ -153,10 +178,29 @@ const start = async () => {
         note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nDescription: ${job_description}`,
       });
 
-      const jobGet = await sm8.getJson(`/job/${job_uuid}.json`);
-      const job_number = jobGet.data?.job_number ?? jobGet.data?.job_no ?? null;
+      let job_number: string | number | null = null;
+      try {
+        const jobGet = await sm8.getJson(`/job/${job_uuid}.json`);
+        job_number =
+          jobGet.data?.job_number ??
+          jobGet.data?.generated_job_id ??
+          jobGet.data?.job_no ??
+          null;
+      } catch (err: any) {
+        fastify.log.error(
+          { status: err?.status, data: err?.data, job_uuid },
+          "ServiceM8 job lookup failed"
+        );
+      }
 
-      return reply.send({ ok: true, job_uuid, job_number, company_uuid });
+      return reply.send({
+        ok: true,
+        job_uuid,
+        job_number,
+        company_uuid,
+        queue_uuid,
+        category_uuid,
+      });
     } catch (err: any) {
       return reply.status(500).send({
         ok: false,
