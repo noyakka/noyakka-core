@@ -97,11 +97,32 @@ export const buildCreateLeadHandler =
       const name = `${first_name} ${last_name}`.trim();
       const uniqueName = `${name} (${mobile})`;
 
-      const companyCreate = await postWithLog("/company.json", {
-        name: uniqueName,
-      });
+      let company_uuid: string | null = null;
+      try {
+        const searchUrl = `${fastify.config.SERVICEM8_BASE_URL}/company.json?search=${encodeURIComponent(mobile)}`;
+        const res = await fetch(searchUrl, {
+          method: "GET",
+          headers: {
+            "X-API-Key": fastify.config.SERVICEM8_API_KEY,
+            "Accept": "application/json",
+          },
+        });
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list) && list.length > 0) {
+            company_uuid = list[0].uuid || list[0].company_uuid || null;
+          }
+        }
+      } catch {
+        // ignore search failures and fall back to create
+      }
 
-      const company_uuid = companyCreate.recordUuid;
+      if (!company_uuid) {
+        const companyCreate = await postWithLog("/company.json", {
+          name: uniqueName,
+        });
+        company_uuid = companyCreate.recordUuid;
+      }
       if (!company_uuid) {
         return reply.status(500).send({ ok: false, error: "servicem8_error" });
       }
