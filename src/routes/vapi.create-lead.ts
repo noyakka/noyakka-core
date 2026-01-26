@@ -157,18 +157,12 @@ export const buildCreateLeadHandler =
 
       await postWithLog("/jobcontact.json", {
         job_uuid,
-        type: "Mobile",
-        value: mobile,
-        name: name,
+        type: "Job Contact",
+        first_name: first_name,
+        last_name: last_name,
+        mobile: mobile,
+        email: email,
       });
-      if (email) {
-        await postWithLog("/jobcontact.json", {
-          job_uuid,
-          type: "Email",
-          value: email,
-          name: name,
-        });
-      }
 
       await postWithLog("/jobactivity.json", {
         job_uuid,
