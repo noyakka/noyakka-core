@@ -88,33 +88,40 @@ const start = async () => {
       // ServiceM8 /company.json expects "name" at minimum (not first_name/last_name)
       const name = `${first_name} ${last_name}`.trim();
 
+      // 1) Try find existing customer by mobile (best identifier)
       let company_uuid: string | null = null;
+
       try {
-        const companyCreate = await sm8.postJson("/company.json", {
-          name,
-          // address: job_address,
+        // ServiceM8 supports list endpoints with query params like ?search=
+        const searchUrl = `${fastify.config.SERVICEM8_BASE_URL}/company.json?search=${encodeURIComponent(mobile)}`;
+        const res = await fetch(searchUrl, {
+          method: "GET",
+          headers: {
+            "X-Api-Key": fastify.config.SERVICEM8_API_KEY,
+            "Accept": "application/json",
+          },
         });
-        company_uuid = companyCreate.recordUuid;
-      } catch (err: any) {
-        if (err?.data?.message?.includes("Name must be unique")) {
-          const searchName = encodeURIComponent(name);
-          const searchRes = await sm8.getJson(`/company.json?search=${searchName}`);
-          const match = Array.isArray(searchRes.data)
-            ? searchRes.data.find((item: any) => item?.name === name)
-            : null;
-          company_uuid = match?.uuid || null;
-        } else {
-          throw err;
+
+        if (res.ok) {
+          const list = await res.json();
+          // list is usually an array of companies
+          if (Array.isArray(list) && list.length > 0) {
+            company_uuid = list[0].uuid || list[0].company_uuid || null;
+          }
         }
+      } catch {
+        // ignore search failures and fall back to create
       }
 
+      // 2) If not found, create new company with a unique name
       if (!company_uuid) {
-        return reply.status(500).send({
-          ok: false,
-          error: "servicem8_error",
-          servicem8_status: 400,
-          servicem8_body: { message: "Company not found after unique name error" },
+        const uniqueName = `${name} (${mobile})`; // guarantees uniqueness
+        const companyCreate = await sm8.postJson("/company.json", {
+          name: uniqueName,
+          // address: job_address,
         });
+
+        company_uuid = companyCreate.recordUuid;
       }
 
       const jobCreate = await sm8.postJson("/job.json", {
@@ -132,7 +139,10 @@ const start = async () => {
         note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nDescription: ${job_description}`,
       });
 
-      return reply.send({ ok: true, job_uuid });
+      const jobGet = await sm8.getJson(`/job/${job_uuid}.json`);
+      const job_number = jobGet.data?.job_number ?? jobGet.data?.job_no ?? null;
+
+      return reply.send({ ok: true, job_uuid, job_number, company_uuid });
     } catch (err: any) {
       return reply.status(500).send({
         ok: false,
