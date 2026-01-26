@@ -88,12 +88,34 @@ const start = async () => {
       // ServiceM8 /company.json expects "name" at minimum (not first_name/last_name)
       const name = `${first_name} ${last_name}`.trim();
 
-      const companyCreate = await sm8.postJson("/company.json", {
-        name,
-        // address: job_address,
-      });
+      let company_uuid: string | null = null;
+      try {
+        const companyCreate = await sm8.postJson("/company.json", {
+          name,
+          // address: job_address,
+        });
+        company_uuid = companyCreate.recordUuid;
+      } catch (err: any) {
+        if (err?.data?.message?.includes("Name must be unique")) {
+          const searchName = encodeURIComponent(name);
+          const searchRes = await sm8.getJson(`/company.json?search=${searchName}`);
+          const match = Array.isArray(searchRes.data)
+            ? searchRes.data.find((item: any) => item?.name === name)
+            : null;
+          company_uuid = match?.uuid || null;
+        } else {
+          throw err;
+        }
+      }
 
-      const company_uuid = companyCreate.recordUuid;
+      if (!company_uuid) {
+        return reply.status(500).send({
+          ok: false,
+          error: "servicem8_error",
+          servicem8_status: 400,
+          servicem8_body: { message: "Company not found after unique name error" },
+        });
+      }
 
       const jobCreate = await sm8.postJson("/job.json", {
         company_uuid,
