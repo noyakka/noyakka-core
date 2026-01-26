@@ -63,78 +63,58 @@ const start = async () => {
 
   // Vapi create-job endpoint
   fastify.post('/vapi/create-job', async (request, reply) => {
-    // ---- AUTH ----
-    const token = extractBearerToken(request.headers);
-
+    const auth = request.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (token !== fastify.config.VAPI_BEARER_TOKEN) {
       return reply.status(401).send({ ok: false, error: "unauthorized" });
     }
 
-    // ---- INPUT ----
     const {
       first_name,
       last_name,
       mobile,
       job_address,
       job_description,
-      urgency = "this_week",
+      urgency = "this_week"
     } = request.body as any;
-
     if (!first_name || !last_name || !mobile || !job_address || !job_description) {
-      return reply.status(400).send({
-        ok: false,
-        error: "missing required fields",
-      });
+      return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
     const sm8 = createServiceM8Client(fastify.config);
 
     try {
-      // ---- CREATE CUSTOMER ----
-      const customerPayload = { first_name, last_name, mobile };
-      fastify.log.info({ customerPayload }, "ServiceM8 customer payload");
-      const customerRes = await sm8.post("/company.json", JSON.stringify(customerPayload));
+      // ServiceM8 /company.json expects "name" at minimum (not first_name/last_name)
+      const name = `${first_name} ${last_name}`.trim();
 
-      const company_uuid = customerRes.data.uuid;
+      const companyCreate = await sm8.postJson("/company.json", {
+        name,
+        // address: job_address,
+      });
 
-      // ---- CREATE JOB ----
-      const jobPayload = {
+      const company_uuid = companyCreate.recordUuid;
+
+      const jobCreate = await sm8.postJson("/job.json", {
         company_uuid,
         job_description,
         job_address,
         status: "Quote",
-        generated_by: "Noyakka AI",
-      };
-      fastify.log.info({ jobPayload }, "ServiceM8 job payload");
-      const jobRes = await sm8.post("/job.json", JSON.stringify(jobPayload));
+      });
 
-      const job_uuid = jobRes.data.uuid;
-      const job_number = jobRes.data.job_number;
+      const job_uuid = jobCreate.recordUuid;
 
-      // ---- ADD JOB NOTE ----
-      const notePayload = {
+      await sm8.postJson("/jobactivity.json", {
         job_uuid,
         note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nDescription: ${job_description}`,
-      };
-      fastify.log.info({ notePayload }, "ServiceM8 note payload");
-      await sm8.post("/jobactivity.json", JSON.stringify(notePayload));
-
-      return reply.send({
-        ok: true,
-        job_number,
-        job_uuid,
       });
+
+      return reply.send({ ok: true, job_uuid });
     } catch (err: any) {
-      const status = err?.response?.status;
-      const data = err?.response?.data;
-
-      fastify.log.error({ status, data }, "ServiceM8 error");
-
       return reply.status(500).send({
         ok: false,
         error: "servicem8_error",
-        servicem8_status: status,
-        servicem8_body: data,
+        servicem8_status: err.status,
+        servicem8_body: err.data,
       });
     }
   });
