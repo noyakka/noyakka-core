@@ -10,7 +10,7 @@ export function createServiceM8Client(env: Env) {
       method: "POST",
       headers: {
         // Use ServiceM8's documented header name
-        "X-Api-Key": env.SERVICEM8_API_KEY,
+        "X-API-Key": env.SERVICEM8_API_KEY,
         "Content-Type": "application/json",
         Accept: "application/json",
       },

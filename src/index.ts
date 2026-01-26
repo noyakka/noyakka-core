@@ -17,12 +17,13 @@ const start = async () => {
   // Register env plugin
   const envSchema = {
     type: "object",
-    required: ["PORT", "VAPI_BEARER_TOKEN", "SERVICEM8_BASE_URL", "SERVICEM8_API_KEY"],
+    required: ["PORT", "VAPI_BEARER_TOKEN", "SERVICEM8_BASE_URL", "SERVICEM8_API_KEY", "SERVICEM8_STAFF_UUID"],
     properties: {
       PORT: { type: "string", default: "3000" },
       VAPI_BEARER_TOKEN: { type: "string" },
       SERVICEM8_BASE_URL: { type: "string" },
-      SERVICEM8_API_KEY: { type: "string" }
+      SERVICEM8_API_KEY: { type: "string" },
+      SERVICEM8_STAFF_UUID: { type: "string" }
     }
   };
 
@@ -105,6 +106,7 @@ const start = async () => {
 
       await sm8.postJson("/jobactivity.json", {
         job_uuid,
+        staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
         note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nDescription: ${job_description}`,
       });
 
