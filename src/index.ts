@@ -32,6 +32,21 @@ const start = async () => {
     dotenv: true
   });
 
+  const extractBearerToken = (headers: typeof fastify['raw']['headers']) => {
+    const authHeader = headers.authorization;
+    const authValue = Array.isArray(authHeader) ? authHeader[0] : authHeader || "";
+    if (authValue) {
+      if (authValue.toLowerCase().startsWith("bearer ")) {
+        return authValue.slice(7);
+      }
+      return authValue;
+    }
+
+    const altHeader = headers["x-vapi-token"] ?? headers["x-api-key"];
+    const altValue = Array.isArray(altHeader) ? altHeader[0] : altHeader || "";
+    return altValue;
+  };
+
   // Health check endpoint
   fastify.get('/health', async (request, reply) => {
     return { ok: true };
@@ -39,8 +54,7 @@ const start = async () => {
 
   // Vapi ping endpoint with auth
   fastify.post('/vapi/ping', async (request, reply) => {
-    const auth = request.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    const token = extractBearerToken(request.headers);
 
     if (token !== fastify.config.VAPI_BEARER_TOKEN) {
       return reply.status(401).send({ ok: false, error: "unauthorized" });
@@ -51,8 +65,7 @@ const start = async () => {
   // Vapi create-job endpoint
   fastify.post('/vapi/create-job', async (request, reply) => {
     // ---- AUTH ----
-    const auth = request.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    const token = extractBearerToken(request.headers);
 
     if (token !== fastify.config.VAPI_BEARER_TOKEN) {
       return reply.status(401).send({ ok: false, error: "unauthorized" });
@@ -113,10 +126,16 @@ Description: ${job_description}`,
         job_uuid,
       });
     } catch (err: any) {
-      fastify.log.error(err?.response?.data || err);
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+
+      fastify.log.error({ status, data }, "ServiceM8 error");
+
       return reply.status(500).send({
         ok: false,
         error: "servicem8_error",
+        servicem8_status: status,
+        servicem8_body: data,
       });
     }
   });
