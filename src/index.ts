@@ -17,13 +17,23 @@ const start = async () => {
   // Register env plugin
   const envSchema = {
     type: "object",
-    required: ["PORT", "VAPI_BEARER_TOKEN", "SERVICEM8_BASE_URL", "SERVICEM8_API_KEY", "SERVICEM8_STAFF_UUID"],
+    required: [
+      "PORT",
+      "VAPI_BEARER_TOKEN",
+      "SERVICEM8_BASE_URL",
+      "SERVICEM8_API_KEY",
+      "SERVICEM8_STAFF_UUID",
+      "SERVICEM8_QUEUE_UUID",
+      "SERVICEM8_CATEGORY_UUID",
+    ],
     properties: {
       PORT: { type: "string", default: "3000" },
       VAPI_BEARER_TOKEN: { type: "string" },
       SERVICEM8_BASE_URL: { type: "string" },
       SERVICEM8_API_KEY: { type: "string" },
-      SERVICEM8_STAFF_UUID: { type: "string" }
+      SERVICEM8_STAFF_UUID: { type: "string" },
+      SERVICEM8_QUEUE_UUID: { type: "string" },
+      SERVICEM8_CATEGORY_UUID: { type: "string" },
     }
   };
 
@@ -124,11 +134,15 @@ const start = async () => {
         company_uuid = companyCreate.recordUuid;
       }
 
+      const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
+
       const jobCreate = await sm8.postJson("/job.json", {
         company_uuid,
-        job_description,
+        job_description: brandedDescription,
         job_address,
         status: "Quote",
+        queue_uuid: fastify.config.SERVICEM8_QUEUE_UUID,
+        category_uuid: fastify.config.SERVICEM8_CATEGORY_UUID,
       });
 
       const job_uuid = jobCreate.recordUuid;
