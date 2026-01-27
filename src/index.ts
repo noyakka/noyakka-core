@@ -607,6 +607,15 @@ const start = async () => {
         sms_failure_reason = "SMS not sent: unknown urgency";
       }
 
+      if (window_code && window_label && fastify.config.SERVICEM8_STAFF_UUID) {
+        await sm8.postJson("/jobactivity.json", {
+          job_uuid,
+          staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+          type: "note",
+          note: `📅 Proposed window: ${window_label} (${window_code}) (auto)`,
+        });
+      }
+
       if (!sms_sent && sms_failure_reason && fastify.config.SERVICEM8_STAFF_UUID) {
         await sm8.postJson("/jobactivity.json", {
           job_uuid,
