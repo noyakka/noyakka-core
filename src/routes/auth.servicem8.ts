@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { randomBytes } from "crypto";
 import prisma from "../lib/prisma";
 
-const BASE_URL = "https://api.servicem8.com";
+const OAUTH_BASE_URL = "https://go.servicem8.com";
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 
 type StartQuery = {
@@ -15,7 +15,7 @@ type CallbackQuery = {
   state?: string;
 };
 
-const tokenEndpoint = `${BASE_URL}/oauth/access_token`;
+const tokenEndpoint = `${OAUTH_BASE_URL}/oauth/access_token`;
 
 export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
   fastify.get(
@@ -35,14 +35,16 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
 
       const redirectBase = fastify.config.BASE_URL || "https://noyakka-core.fly.dev";
       const redirectUri = `${redirectBase}/auth/servicem8/callback`;
+      const scope = ["manage_customers", "manage_jobs"].join(" ");
       const params = new URLSearchParams({
         response_type: "code",
         client_id: fastify.config.SERVICEM8_APP_ID,
         redirect_uri: redirectUri,
         state,
+        scope,
       });
 
-      const authorizeUrl = `${BASE_URL}/oauth/authorize?${params.toString()}`;
+      const authorizeUrl = `${OAUTH_BASE_URL}/oauth/authorize?${params.toString()}`;
       return reply.redirect(authorizeUrl);
     }
   );

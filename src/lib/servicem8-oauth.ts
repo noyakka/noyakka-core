@@ -1,7 +1,8 @@
 import prisma from "./prisma";
 import { createServiceM8Client } from "../servicem8";
 
-const BASE_URL = "https://api.servicem8.com";
+const API_BASE_URL = "https://api.servicem8.com";
+const OAUTH_BASE_URL = "https://go.servicem8.com";
 
 type TokenResponse = {
   access_token: string;
@@ -10,7 +11,7 @@ type TokenResponse = {
   company_uuid?: string;
 };
 
-const tokenEndpoint = `${BASE_URL}/oauth/access_token`;
+const tokenEndpoint = `${OAUTH_BASE_URL}/oauth/access_token`;
 
 const exchangeToken = async (payload: Record<string, string>) => {
   const body = new URLSearchParams(payload);
@@ -74,7 +75,7 @@ export const getServiceM8AccessToken = async (companyUuid: string) => {
 export const getServiceM8Client = async (companyUuid: string) => {
   const accessToken = await getServiceM8AccessToken(companyUuid);
   return createServiceM8Client({
-    baseUrl: `${BASE_URL}/api_1.0`,
+    baseUrl: `${API_BASE_URL}/api_1.0`,
     accessToken,
   });
 };
