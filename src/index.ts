@@ -550,43 +550,25 @@ const start = async () => {
       let window_code: string | null = null;
       let window_label: string | null = null;
 
-      if (urgency === "emergency") {
-        sms_message = `We’ve logged your urgent job. A technician will contact you ASAP.`;
-        window_code = "today_arvo";
-        window_label = "Today arvo (1–4pm)";
-        if (fastify.config.SERVICEM8_STAFF_UUID) {
-          await sm8.postJson("/jobactivity.json", {
-            job_uuid,
-            staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
-            type: "note",
-            note: "⚠️ EMERGENCY job created",
-          });
-        }
-      } else if (urgency === "today") {
-        const availabilityWindow = computeAvailabilityWindow({
-          urgency,
-          name: firstName,
-        });
+      const availabilityWindow = computeAvailabilityWindow({
+        urgency,
+        name: firstName,
+      });
+      sms_message = availabilityWindow.sms_template;
+      window_code = availabilityWindow.window_code;
+      window_label = availabilityWindow.window_label;
+
+      if (urgency === "today") {
         availability = getAvailabilityForToday();
-        sms_message = availabilityWindow.sms_template;
-        window_code = availabilityWindow.window_code;
-        window_label = availabilityWindow.window_label;
-      } else if (urgency === "this_week") {
-        const availabilityWindow = computeAvailabilityWindow({
-          urgency,
-          name: firstName,
+      }
+
+      if (urgency === "emergency" && fastify.config.SERVICEM8_STAFF_UUID) {
+        await sm8.postJson("/jobactivity.json", {
+          job_uuid,
+          staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+          type: "note",
+          note: "⚠️ EMERGENCY job created",
         });
-        sms_message = availabilityWindow.sms_template;
-        window_code = availabilityWindow.window_code;
-        window_label = availabilityWindow.window_label;
-      } else if (urgency === "quote_only") {
-        const availabilityWindow = computeAvailabilityWindow({
-          urgency,
-          name: firstName,
-        });
-        sms_message = availabilityWindow.sms_template;
-        window_code = availabilityWindow.window_code;
-        window_label = availabilityWindow.window_label;
       }
 
       if (generated_job_id && sms_message) {
