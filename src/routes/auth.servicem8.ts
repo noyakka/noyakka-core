@@ -40,6 +40,7 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
         "create_jobs",
         "manage_customers",
         "manage_job_contacts",
+        "manage_schedule",
         "publish_sms",
       ].join(" ");
       const params = new URLSearchParams({
