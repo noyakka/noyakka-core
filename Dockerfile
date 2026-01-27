@@ -7,6 +7,9 @@ COPY package*.json ./
 COPY tsconfig.json ./
 COPY prisma ./prisma
 
+# Install OS deps for Prisma engines
+RUN apk add --no-cache openssl openssl1.1-compat libc6-compat
+
 # Install dependencies
 RUN npm ci
 RUN npx prisma generate
