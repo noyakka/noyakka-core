@@ -37,6 +37,7 @@ const start = async () => {
       SERVICEM8_STAFF_UUID: { type: "string" },
       SERVICEM8_QUEUE_UUID: { type: "string" },
       SERVICEM8_CATEGORY_UUID: { type: "string" },
+      SERVICEM8_VENDOR_UUID: { type: "string" },
       DATABASE_URL: { type: "string" },
     }
   };
@@ -132,14 +133,15 @@ const start = async () => {
       job_description,
       urgency = "this_week"
     } = request.body as any;
-    if (!servicem8_vendor_uuid) {
+    const vendorUuid = servicem8_vendor_uuid ?? fastify.config.SERVICEM8_VENDOR_UUID;
+    if (!vendorUuid) {
       return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
     }
     if (!first_name || !mobile || !job_address || !job_description || !urgency) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const sm8 = await getServiceM8Client(servicem8_vendor_uuid);
+    const sm8 = await getServiceM8Client(vendorUuid);
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
     try {
@@ -230,7 +232,7 @@ const start = async () => {
       if (generated_job_id) {
         try {
           await sendServiceM8Sms({
-            companyUuid: servicem8_vendor_uuid,
+            companyUuid: vendorUuid,
             toMobile: mobile,
             message: `G’day ${first_name}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
             regardingJobUuid: job_uuid,
