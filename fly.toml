@@ -19,6 +19,9 @@ primary_region = 'syd'
   source = "noyakka_data"
   destination = "/data"
 
+[deploy]
+  release_command = "npx prisma migrate deploy"
+
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
