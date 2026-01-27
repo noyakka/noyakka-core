@@ -38,6 +38,7 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
       const scope = [
         "vendor",
         "create_jobs",
+        "read_jobs",
         "manage_customers",
         "manage_job_contacts",
         "manage_schedule",
