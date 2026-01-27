@@ -45,7 +45,7 @@ export const buildCreateLeadHandler =
     }
 
     const {
-      company_uuid,
+      company_uuid: tenant_company_uuid,
       first_name,
       last_name,
       mobile,
@@ -56,11 +56,11 @@ export const buildCreateLeadHandler =
       call_summary = "",
     } = request.body || {};
 
-    if (!company_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
+    if (!tenant_company_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const sm8 = await getServiceM8Client(company_uuid);
+    const sm8 = await getServiceM8Client(tenant_company_uuid);
     const postWithLog = async (path: string, body: Record<string, unknown>) => {
       try {
         return await sm8.postJson(path, body);

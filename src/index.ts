@@ -186,6 +186,8 @@ const start = async () => {
         job_uuid,
         generated_job_id: job_number,
         company_uuid,
+        queue_uuid,
+        category_uuid,
       });
     } catch (err: any) {
       return reply.status(500).send({
