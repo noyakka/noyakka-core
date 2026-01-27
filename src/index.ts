@@ -125,6 +125,23 @@ const start = async () => {
       },
     },
   }, async (request, reply) => {
+    const extractVapiArgs = (body: any) => {
+      if (!body || typeof body !== "object") {
+        return body;
+      }
+
+      const wrapper = body.message?.toolCalls?.[0]?.function?.arguments;
+      if (typeof wrapper === "string") {
+        try {
+          return JSON.parse(wrapper);
+        } catch {
+          return body;
+        }
+      }
+
+      return body;
+    };
+
     console.log("[VAPI] create-job HIT", {
       body: request.body,
       headers: {
@@ -132,9 +149,11 @@ const start = async () => {
       },
     });
 
+    const body = extractVapiArgs(request.body);
+
     lastVapiCall = {
       at: new Date().toISOString(),
-      body: request.body ?? null,
+      body: body ?? null,
     };
 
     const token = extractBearerToken(request.headers);
@@ -151,7 +170,7 @@ const start = async () => {
       job_address,
       job_description,
       urgency = "this_week"
-    } = request.body as any;
+    } = body as any;
     const vendorUuid = servicem8_vendor_uuid ?? fastify.config.SERVICEM8_VENDOR_UUID;
     if (!vendorUuid) {
       return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
