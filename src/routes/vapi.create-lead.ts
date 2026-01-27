@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { createServiceM8Client } from "../servicem8";
+import { getServiceM8Client } from "../lib/servicem8-oauth";
 
 type CreateLeadBody = {
+  company_uuid?: string;
   first_name?: string;
   last_name?: string;
   mobile?: string;
@@ -44,6 +45,7 @@ export const buildCreateLeadHandler =
     }
 
     const {
+      company_uuid,
       first_name,
       last_name,
       mobile,
@@ -54,30 +56,18 @@ export const buildCreateLeadHandler =
       call_summary = "",
     } = request.body || {};
 
-    if (!first_name || !last_name || !mobile || !job_address || !job_description) {
+    if (!company_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const requiredEnv = [
-      "SERVICEM8_API_KEY",
-      "SERVICEM8_QUEUE_UUID",
-      "SERVICEM8_CATEGORY_UUID",
-    ] as const;
-    for (const key of requiredEnv) {
-      if (!fastify.config[key]) {
-        fastify.log.error({ missingEnv: key }, "Missing required ServiceM8 env var");
-        return reply.status(500).send({ ok: false, error: "missing_servicem8_env" });
-      }
-    }
-
-    const sm8 = createServiceM8Client(fastify.config);
+    const sm8 = await getServiceM8Client(company_uuid);
     const postWithLog = async (path: string, body: Record<string, unknown>) => {
       try {
         return await sm8.postJson(path, body);
       } catch (err: any) {
         fastify.log.error(
           {
-            url: `${fastify.config.SERVICEM8_BASE_URL}${path}`,
+            url: `https://api.servicem8.com/api_1.0${path}`,
             body: {
               ...body,
               mobile: mask(body.mobile as string | undefined),
@@ -99,19 +89,9 @@ export const buildCreateLeadHandler =
 
       let company_uuid: string | null = null;
       try {
-        const searchUrl = `${fastify.config.SERVICEM8_BASE_URL}/company.json?search=${encodeURIComponent(mobile)}`;
-        const res = await fetch(searchUrl, {
-          method: "GET",
-          headers: {
-            "X-API-Key": fastify.config.SERVICEM8_API_KEY,
-            "Accept": "application/json",
-          },
-        });
-        if (res.ok) {
-          const list = await res.json();
-          if (Array.isArray(list) && list.length > 0) {
-            company_uuid = list[0].uuid || list[0].company_uuid || null;
-          }
+        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(mobile)}`);
+        if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+          company_uuid = searchRes.data[0].uuid || searchRes.data[0].company_uuid || null;
         }
       } catch {
         // ignore search failures and fall back to create
@@ -127,8 +107,8 @@ export const buildCreateLeadHandler =
         return reply.status(500).send({ ok: false, error: "servicem8_error" });
       }
 
-      const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID;
-      const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID;
+      const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID || undefined;
+      const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID || undefined;
       const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
 
       fastify.log.info(
@@ -146,8 +126,8 @@ export const buildCreateLeadHandler =
         job_description: brandedDescription,
         job_address,
         status: "Quote",
-        queue_uuid,
-        category_uuid,
+        ...(queue_uuid ? { queue_uuid } : {}),
+        ...(category_uuid ? { category_uuid } : {}),
       });
 
       const job_uuid = jobCreate.recordUuid;
@@ -164,12 +144,14 @@ export const buildCreateLeadHandler =
         email: email,
       });
 
-      await postWithLog("/jobactivity.json", {
-        job_uuid,
-        staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
-        type: "note",
-        note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nSummary: ${call_summary}\nDescription: ${job_description}`,
-      });
+      if (fastify.config.SERVICEM8_STAFF_UUID) {
+        await postWithLog("/jobactivity.json", {
+          job_uuid,
+          staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+          type: "note",
+          note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nSummary: ${call_summary}\nDescription: ${job_description}`,
+        });
+      }
 
       let generated_job_id: string | number | null = null;
       try {

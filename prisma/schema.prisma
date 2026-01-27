@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ServiceM8Connection {
+  id            String   @id @default(cuid())
+  company_uuid  String   @unique
+  access_token  String
+  refresh_token String?
+  expires_at    DateTime?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
+model OAuthState {
+  id           String   @id @default(cuid())
+  state        String   @unique
+  company_uuid String?
+  created_at   DateTime @default(now())
+  expires_at   DateTime
+}

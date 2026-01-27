@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { createServiceM8Client } from "../servicem8";
+import { getServiceM8Client } from "../lib/servicem8-oauth";
 
 type SendSmsBody = {
-  mobile?: string;
+  company_uuid?: string;
+  to_mobile?: string;
   message?: string;
-  job_uuid?: string;
 };
 
 const extractBearerToken = (headers: FastifyRequest["headers"]) => {
@@ -32,38 +32,21 @@ export const buildSendSmsHandler =
       return reply.status(401).send({ ok: false, error: "unauthorized" });
     }
 
-    const { mobile, message, job_uuid } = request.body || {};
-    if (!mobile || !message) {
+    const { company_uuid, to_mobile, message } = request.body || {};
+    if (!company_uuid || !to_mobile || !message) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const sm8 = createServiceM8Client(fastify.config);
-    const note = `📩 SMS pending\nTo: ${mobile}\nMessage: ${message}`;
-
     fastify.log.info(
-      { job_uuid, mobile: mask(mobile) },
+      { company_uuid, mobile: mask(to_mobile) },
       "Vapi send-sms request received"
     );
 
-    if (!job_uuid) {
-      return reply.send({ ok: true, status: "sms_pending", job_uuid: null });
-    }
+    await getServiceM8Client(company_uuid);
 
-    try {
-      await sm8.postJson("/jobactivity.json", {
-        job_uuid,
-        staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
-        type: "note",
-        note,
-      });
-
-      return reply.send({ ok: true, status: "sms_pending", job_uuid });
-    } catch (err: any) {
-      return reply.status(500).send({
-        ok: false,
-        error: "servicem8_error",
-        servicem8_status: err.status,
-        servicem8_body: err.data,
-      });
-    }
+    return reply.status(501).send({
+      ok: false,
+      error: "sms_not_supported",
+      hint: "Integrate Twilio next",
+    });
   };

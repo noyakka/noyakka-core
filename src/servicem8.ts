@@ -1,16 +1,15 @@
 type Env = {
-  SERVICEM8_BASE_URL: string;
-  SERVICEM8_API_KEY: string;
+  baseUrl: string;
+  accessToken: string;
 };
 
 export function createServiceM8Client(env: Env) {
   async function postJson(path: string, body: unknown) {
-    const url = `${env.SERVICEM8_BASE_URL}${path}`;
+    const url = `${env.baseUrl}${path}`;
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        // Use ServiceM8's documented header name
-        "X-API-Key": env.SERVICEM8_API_KEY,
+        Authorization: `Bearer ${env.accessToken}`,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
@@ -38,11 +37,11 @@ export function createServiceM8Client(env: Env) {
   }
 
   async function getJson(path: string) {
-    const url = `${env.SERVICEM8_BASE_URL}${path}`;
+    const url = `${env.baseUrl}${path}`;
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        "X-API-Key": env.SERVICEM8_API_KEY,
+        Authorization: `Bearer ${env.accessToken}`,
         "Accept": "application/json",
       },
     });
