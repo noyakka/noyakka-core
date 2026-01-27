@@ -368,6 +368,7 @@ const start = async () => {
       let sms_sent = false;
       let sms_failure_reason: string | null = null;
       let sms_message: string | null = null;
+      let availability: { available: boolean; window: string; message: string } | null = null;
 
       if (urgency === "emergency") {
         sms_message = `We’ve logged your urgent job. A technician will contact you ASAP.`;
@@ -380,7 +381,7 @@ const start = async () => {
           });
         }
       } else if (urgency === "today") {
-        const availability = getAvailabilityForToday();
+        availability = getAvailabilityForToday();
         sms_message = availability.available
           ? "We’ve logged your job. A technician will contact you today to confirm timing."
           : "We’ve logged your job. Next availability is tomorrow, and we’ll confirm timing shortly.";
@@ -422,6 +423,7 @@ const start = async () => {
         job_uuid,
         generated_job_id,
         sms_sent,
+        availability,
       });
     } catch (err: any) {
       return reply.status(500).send({
