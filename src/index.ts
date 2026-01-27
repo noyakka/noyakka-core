@@ -6,6 +6,7 @@ import { buildSendSmsHandler } from "./routes/vapi.send-sms";
 import { registerServiceM8AuthRoutes } from "./routes/auth.servicem8";
 import prisma from "./lib/prisma";
 import { getServiceM8Client } from "./lib/servicem8-oauth";
+import { sendServiceM8Sms } from "./lib/servicem8-sms";
 
 // Start server
 const start = async () => {
@@ -181,10 +182,10 @@ const start = async () => {
         });
       }
 
-      let job_number: string | number | null = null;
+      let generated_job_id: string | number | null = null;
       try {
         const jobGet = await sm8.getJson(`/job/${job_uuid}.json`);
-        job_number =
+        generated_job_id =
           jobGet.data?.job_number ??
           jobGet.data?.generated_job_id ??
           jobGet.data?.job_no ??
@@ -196,13 +197,33 @@ const start = async () => {
         );
       }
 
+      let sms_sent = false;
+      if (generated_job_id) {
+        try {
+          await sendServiceM8Sms({
+            companyUuid: servicem8_vendor_uuid,
+            toMobile: mobile,
+            message: `G’day ${first_name}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
+            regardingJobUuid: job_uuid,
+          });
+          sms_sent = true;
+        } catch (err: any) {
+          if (fastify.config.SERVICEM8_STAFF_UUID) {
+            await sm8.postJson("/jobactivity.json", {
+              job_uuid,
+              staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+              type: "note",
+              note: "⚠️ SMS confirmation failed",
+            });
+          }
+        }
+      }
+
       return reply.send({
         ok: true,
         job_uuid,
-        generated_job_id: job_number,
-        company_uuid,
-        queue_uuid,
-        category_uuid,
+        generated_job_id,
+        sms_sent,
       });
     } catch (err: any) {
       return reply.status(500).send({
