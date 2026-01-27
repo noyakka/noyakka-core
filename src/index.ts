@@ -10,6 +10,25 @@ import { sendServiceM8Sms } from "./lib/servicem8-sms";
 
 let lastVapiCall: { at: string; body: unknown } | null = null;
 
+const getBrisbaneHour = () => {
+  const parts = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Brisbane",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  return hour ? Number(hour) : new Date().getUTCHours();
+};
+
+const getAvailabilityForToday = () => {
+  const cutoffHour = 15;
+  const hour = getBrisbaneHour();
+  if (hour < cutoffHour) {
+    return { available: true, window: "today", message: "We can attend today" };
+  }
+  return { available: false, window: "tomorrow", message: "Next availability is tomorrow" };
+};
+
 // Start server
 const start = async () => {
   const fastify = Fastify({
@@ -95,6 +114,32 @@ const start = async () => {
 
   fastify.get("/debug/last-vapi-call", async () => {
     return lastVapiCall ?? { ok: false, message: "no calls yet" };
+  });
+
+  fastify.post("/vapi/check-availability", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["urgency"],
+        properties: {
+          urgency: { type: "string" },
+          servicem8_vendor_uuid: { type: "string" },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const token = extractBearerToken(request.headers);
+    if (token !== fastify.config.VAPI_BEARER_TOKEN) {
+      return reply.status(401).send({ ok: false, error: "unauthorized" });
+    }
+
+    const body = request.body as any;
+    const urgency = body?.urgency;
+    if (urgency !== "today") {
+      return reply.status(400).send({ ok: false, error: "invalid_urgency" });
+    }
+
+    return reply.send(getAvailabilityForToday());
   });
 
   // Vapi ping endpoint with auth
@@ -322,20 +367,45 @@ const start = async () => {
 
       let sms_sent = false;
       let sms_failure_reason: string | null = null;
-      if (generated_job_id) {
+      let sms_message: string | null = null;
+
+      if (urgency === "emergency") {
+        sms_message = `We’ve logged your urgent job. A technician will contact you ASAP.`;
+        if (fastify.config.SERVICEM8_STAFF_UUID) {
+          await sm8.postJson("/jobactivity.json", {
+            job_uuid,
+            staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+            type: "note",
+            note: "⚠️ EMERGENCY job created",
+          });
+        }
+      } else if (urgency === "today") {
+        const availability = getAvailabilityForToday();
+        sms_message = availability.available
+          ? "We’ve logged your job. A technician will contact you today to confirm timing."
+          : "We’ve logged your job. Next availability is tomorrow, and we’ll confirm timing shortly.";
+      } else if (urgency === "this_week") {
+        sms_message = "We’ve logged your job for this week. We’ll confirm timing shortly.";
+      } else if (urgency === "quote_only") {
+        sms_message = "We’ve logged your request. Our team will follow up with a quote.";
+      }
+
+      if (generated_job_id && sms_message) {
         try {
           await sendServiceM8Sms({
             companyUuid: vendorUuid,
             toMobile: normalizedMobile,
-            message: `G’day ${firstName}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
+            message: sms_message.replace("{job_number}", String(generated_job_id)),
             regardingJobUuid: job_uuid,
           });
           sms_sent = true;
         } catch (err: any) {
           sms_failure_reason = err?.status ? `ServiceM8 SMS failed (${err.status})` : "ServiceM8 SMS failed";
         }
-      } else {
+      } else if (!generated_job_id) {
         sms_failure_reason = "SMS not sent: missing generated_job_id";
+      } else if (!sms_message) {
+        sms_failure_reason = "SMS not sent: unknown urgency";
       }
 
       if (!sms_sent && sms_failure_reason && fastify.config.SERVICEM8_STAFF_UUID) {
