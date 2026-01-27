@@ -106,11 +106,12 @@ const start = async () => {
     schema: {
       body: {
         type: "object",
-        required: ["first_name", "mobile", "job_address", "job_description", "urgency"],
+        required: ["mobile", "job_address", "job_description", "urgency"],
         properties: {
           servicem8_vendor_uuid: { type: "string" },
           first_name: { type: "string" },
           last_name: { type: "string" },
+          name: { type: "string" },
           mobile: { type: "string" },
           job_address: { type: "string" },
           job_description: { type: "string" },
@@ -128,6 +129,7 @@ const start = async () => {
       servicem8_vendor_uuid,
       first_name,
       last_name,
+      name,
       mobile,
       job_address,
       job_description,
@@ -137,7 +139,7 @@ const start = async () => {
     if (!vendorUuid) {
       return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
     }
-    if (!first_name || !mobile || !job_address || !job_description || !urgency) {
+    if (!mobile || !job_address || !job_description || !urgency) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
@@ -145,7 +147,24 @@ const start = async () => {
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
     try {
-      const fullName = `${first_name} ${last_name ?? ""}`.trim();
+      let firstName = first_name?.trim();
+      let lastName = last_name?.trim();
+
+      if (!firstName && name) {
+        const parts = name.split(" ");
+        firstName = parts[0];
+        lastName = parts.slice(1).join(" ") || "";
+      }
+
+      if (!firstName) {
+        firstName = "Customer";
+      }
+
+      if (!lastName) {
+        lastName = "";
+      }
+
+      const fullName = `${firstName} ${lastName}`.trim();
       const uniqueName = `${fullName || "Noyakka Lead"} (${mobile})`;
       let company_uuid: string | null = null;
 
@@ -199,8 +218,8 @@ const start = async () => {
       await sm8.postJson("/jobcontact.json", {
         job_uuid,
         type: "Job Contact",
-        first: first_name,
-        last: last_name ?? "",
+        first: firstName,
+        last: lastName,
         mobile,
       });
 
@@ -234,7 +253,7 @@ const start = async () => {
           await sendServiceM8Sms({
             companyUuid: vendorUuid,
             toMobile: mobile,
-            message: `G’day ${first_name}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
+            message: `G’day ${firstName}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
             regardingJobUuid: job_uuid,
           });
           sms_sent = true;
