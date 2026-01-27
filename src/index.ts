@@ -131,6 +131,9 @@ const start = async () => {
       }
 
       const wrapper = body.message?.toolCalls?.[0]?.function?.arguments;
+      if (wrapper && typeof wrapper === "object") {
+        return wrapper;
+      }
       if (typeof wrapper === "string") {
         try {
           return JSON.parse(wrapper);
