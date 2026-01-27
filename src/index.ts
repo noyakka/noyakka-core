@@ -4,6 +4,7 @@ import env from '@fastify/env';
 import { buildCreateLeadHandler } from "./routes/vapi.create-lead";
 import { buildSendSmsHandler } from "./routes/vapi.send-sms";
 import { registerServiceM8AuthRoutes } from "./routes/auth.servicem8";
+import prisma from "./lib/prisma";
 import { getServiceM8Client } from "./lib/servicem8-oauth";
 
 // Start server
@@ -72,6 +73,20 @@ const start = async () => {
   // Health check endpoint
   fastify.get('/health', async (request, reply) => {
     return { ok: true };
+  });
+
+  fastify.get("/debug/oauth-connections", async (_request, reply) => {
+    const count = await prisma.serviceM8Connection.count();
+    const latest = await prisma.serviceM8Connection.findFirst({
+      orderBy: { updated_at: "desc" },
+    });
+
+    return reply.send({
+      ok: true,
+      count,
+      latest_company_uuid: latest?.company_uuid ?? null,
+      latest_expires_at: latest?.expires_at ?? null,
+    });
   });
 
   // Vapi ping endpoint with auth
@@ -230,6 +245,7 @@ const start = async () => {
           company_uuid: { type: "string" },
           to_mobile: { type: "string" },
           message: { type: "string" },
+          regarding_job_uuid: { type: "string" },
         },
       },
     },

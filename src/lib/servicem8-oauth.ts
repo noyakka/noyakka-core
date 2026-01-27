@@ -30,7 +30,7 @@ const exchangeToken = async (payload: Record<string, string>) => {
   return data;
 };
 
-export const getServiceM8Client = async (companyUuid: string) => {
+export const getServiceM8AccessToken = async (companyUuid: string) => {
   const connection = await prisma.serviceM8Connection.findUnique({
     where: { company_uuid: companyUuid },
   });
@@ -68,6 +68,11 @@ export const getServiceM8Client = async (companyUuid: string) => {
     });
   }
 
+  return accessToken;
+};
+
+export const getServiceM8Client = async (companyUuid: string) => {
+  const accessToken = await getServiceM8AccessToken(companyUuid);
   return createServiceM8Client({
     baseUrl: `${BASE_URL}/api_1.0`,
     accessToken,

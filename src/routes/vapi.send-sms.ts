@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { getServiceM8Client } from "../lib/servicem8-oauth";
+import { sendServiceM8Sms } from "../lib/servicem8-sms";
 
 type SendSmsBody = {
   company_uuid?: string;
   to_mobile?: string;
   message?: string;
+  regarding_job_uuid?: string;
 };
 
 const extractBearerToken = (headers: FastifyRequest["headers"]) => {
@@ -32,7 +33,7 @@ export const buildSendSmsHandler =
       return reply.status(401).send({ ok: false, error: "unauthorized" });
     }
 
-    const { company_uuid, to_mobile, message } = request.body || {};
+    const { company_uuid, to_mobile, message, regarding_job_uuid } = request.body || {};
     if (!company_uuid || !to_mobile || !message) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
@@ -42,11 +43,20 @@ export const buildSendSmsHandler =
       "Vapi send-sms request received"
     );
 
-    await getServiceM8Client(company_uuid);
-
-    return reply.status(501).send({
-      ok: false,
-      error: "sms_not_supported",
-      hint: "Integrate Twilio next",
-    });
+    try {
+      await sendServiceM8Sms({
+        companyUuid: company_uuid,
+        toMobile: to_mobile,
+        message,
+        regardingJobUuid: regarding_job_uuid,
+      });
+      return reply.send({ ok: true });
+    } catch (err: any) {
+      return reply.status(500).send({
+        ok: false,
+        error: "servicem8_sms_failed",
+        servicem8_status: err.status,
+        servicem8_body: err.data,
+      });
+    }
   };

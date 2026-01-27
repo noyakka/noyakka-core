@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { getServiceM8Client } from "../lib/servicem8-oauth";
+import { sendServiceM8Sms } from "../lib/servicem8-sms";
 
 type CreateLeadBody = {
   company_uuid?: string;
@@ -165,6 +166,21 @@ export const buildCreateLeadHandler =
         fastify.log.error(
           { status: err?.status, data: err?.data, job_uuid },
           "ServiceM8 job lookup failed"
+        );
+      }
+
+      const smsMessage = `G’day ${first_name}. Job #${generated_job_id ?? "pending"} is logged. We’ll confirm timing shortly.`;
+      try {
+        await sendServiceM8Sms({
+          companyUuid: tenant_company_uuid,
+          toMobile: mobile,
+          message: smsMessage,
+          regardingJobUuid: job_uuid,
+        });
+      } catch (err: any) {
+        fastify.log.error(
+          { status: err?.status, data: err?.data, job_uuid },
+          "ServiceM8 SMS send failed"
         );
       }
 
