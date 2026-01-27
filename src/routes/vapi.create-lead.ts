@@ -3,7 +3,7 @@ import { getServiceM8Client } from "../lib/servicem8-oauth";
 import { sendServiceM8Sms } from "../lib/servicem8-sms";
 
 type CreateLeadBody = {
-  company_uuid?: string;
+  servicem8_vendor_uuid?: string;
   first_name?: string;
   last_name?: string;
   mobile?: string;
@@ -46,7 +46,7 @@ export const buildCreateLeadHandler =
     }
 
     const {
-      company_uuid: tenant_company_uuid,
+      servicem8_vendor_uuid: tenant_vendor_uuid,
       first_name,
       last_name,
       mobile,
@@ -57,11 +57,11 @@ export const buildCreateLeadHandler =
       call_summary = "",
     } = request.body || {};
 
-    if (!tenant_company_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
+    if (!tenant_vendor_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const sm8 = await getServiceM8Client(tenant_company_uuid);
+    const sm8 = await getServiceM8Client(tenant_vendor_uuid);
     const postWithLog = async (path: string, body: Record<string, unknown>) => {
       try {
         return await sm8.postJson(path, body);
@@ -172,7 +172,7 @@ export const buildCreateLeadHandler =
       const smsMessage = `G’day ${first_name}. Job #${generated_job_id ?? "pending"} is logged. We’ll confirm timing shortly.`;
       try {
         await sendServiceM8Sms({
-          companyUuid: tenant_company_uuid,
+          companyUuid: tenant_vendor_uuid,
           toMobile: mobile,
           message: smsMessage,
           regardingJobUuid: job_uuid,

@@ -31,9 +31,9 @@ const exchangeToken = async (payload: Record<string, string>) => {
   return data;
 };
 
-export const getServiceM8AccessToken = async (companyUuid: string) => {
+export const getServiceM8AccessToken = async (vendorUuid: string) => {
   const connection = await prisma.serviceM8Connection.findUnique({
-    where: { company_uuid: companyUuid },
+    where: { vendor_uuid: vendorUuid },
   });
 
   if (!connection) {
@@ -60,7 +60,7 @@ export const getServiceM8AccessToken = async (companyUuid: string) => {
       : null;
 
     await prisma.serviceM8Connection.update({
-      where: { company_uuid: companyUuid },
+      where: { vendor_uuid: vendorUuid },
       data: {
         access_token: refreshed.access_token,
         refresh_token: refreshed.refresh_token ?? connection.refresh_token,
@@ -72,8 +72,8 @@ export const getServiceM8AccessToken = async (companyUuid: string) => {
   return accessToken;
 };
 
-export const getServiceM8Client = async (companyUuid: string) => {
-  const accessToken = await getServiceM8AccessToken(companyUuid);
+export const getServiceM8Client = async (vendorUuid: string) => {
+  const accessToken = await getServiceM8AccessToken(vendorUuid);
   return createServiceM8Client({
     baseUrl: `${API_BASE_URL}/api_1.0`,
     accessToken,

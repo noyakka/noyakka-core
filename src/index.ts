@@ -84,7 +84,7 @@ const start = async () => {
     return reply.send({
       ok: true,
       count,
-      latest_company_uuid: latest?.company_uuid ?? null,
+      latest_servicem8_vendor_uuid: latest?.vendor_uuid ?? null,
       latest_expires_at: latest?.expires_at ?? null,
     });
   });
@@ -104,9 +104,9 @@ const start = async () => {
     schema: {
       body: {
         type: "object",
-        required: ["company_uuid", "first_name", "last_name", "mobile", "job_address", "job_description"],
+        required: ["servicem8_vendor_uuid", "first_name", "last_name", "mobile", "job_address", "job_description"],
         properties: {
-          company_uuid: { type: "string" },
+          servicem8_vendor_uuid: { type: "string" },
           first_name: { type: "string" },
           last_name: { type: "string" },
           mobile: { type: "string" },
@@ -123,7 +123,7 @@ const start = async () => {
     }
 
     const {
-      company_uuid,
+      servicem8_vendor_uuid,
       first_name,
       last_name,
       mobile,
@@ -131,11 +131,11 @@ const start = async () => {
       job_description,
       urgency = "this_week"
     } = request.body as any;
-    if (!company_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
+    if (!servicem8_vendor_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
-    const sm8 = await getServiceM8Client(company_uuid);
+    const sm8 = await getServiceM8Client(servicem8_vendor_uuid);
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
     try {
@@ -240,9 +240,9 @@ const start = async () => {
     schema: {
       body: {
         type: "object",
-        required: ["company_uuid", "to_mobile", "message"],
+        required: ["servicem8_vendor_uuid", "to_mobile", "message"],
         properties: {
-          company_uuid: { type: "string" },
+          servicem8_vendor_uuid: { type: "string" },
           to_mobile: { type: "string" },
           message: { type: "string" },
           regarding_job_uuid: { type: "string" },

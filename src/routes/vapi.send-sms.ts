@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendServiceM8Sms } from "../lib/servicem8-sms";
 
 type SendSmsBody = {
-  company_uuid?: string;
+  servicem8_vendor_uuid?: string;
   to_mobile?: string;
   message?: string;
   regarding_job_uuid?: string;
@@ -33,19 +33,19 @@ export const buildSendSmsHandler =
       return reply.status(401).send({ ok: false, error: "unauthorized" });
     }
 
-    const { company_uuid, to_mobile, message, regarding_job_uuid } = request.body || {};
-    if (!company_uuid || !to_mobile || !message) {
+    const { servicem8_vendor_uuid, to_mobile, message, regarding_job_uuid } = request.body || {};
+    if (!servicem8_vendor_uuid || !to_mobile || !message) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
     fastify.log.info(
-      { company_uuid, mobile: mask(to_mobile) },
+      { servicem8_vendor_uuid, mobile: mask(to_mobile) },
       "Vapi send-sms request received"
     );
 
     try {
       await sendServiceM8Sms({
-        companyUuid: company_uuid,
+        companyUuid: servicem8_vendor_uuid,
         toMobile: to_mobile,
         message,
         regardingJobUuid: regarding_job_uuid,

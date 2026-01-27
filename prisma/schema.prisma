@@ -10,7 +10,7 @@ datasource db {
 
 model ServiceM8Connection {
   id            String   @id @default(cuid())
-  company_uuid  String   @unique
+  vendor_uuid   String   @unique
   access_token  String
   refresh_token String?
   expires_at    DateTime?
@@ -21,7 +21,7 @@ model ServiceM8Connection {
 model OAuthState {
   id           String   @id @default(cuid())
   state        String   @unique
-  company_uuid String?
+  vendor_uuid  String?
   created_at   DateTime @default(now())
   expires_at   DateTime
 }

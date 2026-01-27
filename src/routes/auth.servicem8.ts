@@ -6,7 +6,7 @@ const OAUTH_BASE_URL = "https://go.servicem8.com";
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 
 type StartQuery = {
-  company_uuid?: string;
+  vendor_uuid?: string;
   state?: string;
 };
 
@@ -21,21 +21,27 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
   fastify.get(
     "/auth/servicem8/start",
     async (request: FastifyRequest<{ Querystring: StartQuery }>, reply: FastifyReply) => {
-      const { company_uuid } = request.query;
+      const { vendor_uuid } = request.query;
       const state = randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + OAUTH_TTL_MS);
 
       await prisma.oAuthState.create({
         data: {
           state,
-          company_uuid,
+          vendor_uuid,
           expires_at: expiresAt,
         },
       });
 
       const redirectBase = fastify.config.BASE_URL || "https://noyakka-core.fly.dev";
       const redirectUri = `${redirectBase}/auth/servicem8/callback`;
-      const scope = ["manage_customers", "manage_jobs"].join(" ");
+      const scope = [
+        "vendor",
+        "create_jobs",
+        "manage_customers",
+        "manage_job_contacts",
+        "publish_sms",
+      ].join(" ");
       const params = new URLSearchParams({
         response_type: "code",
         client_id: fastify.config.SERVICEM8_APP_ID,
@@ -84,9 +90,17 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
         return reply.status(500).send("ServiceM8 token exchange failed");
       }
 
-      const companyUuid = tokenData.company_uuid ?? record.company_uuid;
-      if (!companyUuid) {
-        return reply.status(500).send("Missing company_uuid from ServiceM8");
+      const vendorRes = await fetch("https://api.servicem8.com/api_1.0/vendor.json", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          Accept: "application/json",
+        },
+      });
+      const vendorData = await vendorRes.json();
+      const vendorUuid = Array.isArray(vendorData) ? vendorData[0]?.uuid : vendorData?.uuid;
+      if (!vendorUuid) {
+        return reply.status(500).send("Missing vendor uuid from ServiceM8");
       }
 
       const expiresAt = tokenData.expires_in
@@ -94,9 +108,9 @@ export const registerServiceM8AuthRoutes = (fastify: FastifyInstance) => {
         : null;
 
       await prisma.serviceM8Connection.upsert({
-        where: { company_uuid: companyUuid },
+        where: { vendor_uuid: vendorUuid },
         create: {
-          company_uuid: companyUuid,
+          vendor_uuid: vendorUuid,
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token,
           expires_at: expiresAt,
