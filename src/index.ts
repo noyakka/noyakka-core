@@ -8,6 +8,8 @@ import prisma from "./lib/prisma";
 import { getServiceM8Client } from "./lib/servicem8-oauth";
 import { sendServiceM8Sms } from "./lib/servicem8-sms";
 
+let lastVapiCall: { at: string; body: unknown } | null = null;
+
 // Start server
 const start = async () => {
   const fastify = Fastify({
@@ -91,6 +93,10 @@ const start = async () => {
     });
   });
 
+  fastify.get("/debug/last-vapi-call", async () => {
+    return lastVapiCall ?? { ok: false, message: "no calls yet" };
+  });
+
   // Vapi ping endpoint with auth
   fastify.post('/vapi/ping', async (request, reply) => {
     const token = extractBearerToken(request.headers);
@@ -106,7 +112,6 @@ const start = async () => {
     schema: {
       body: {
         type: "object",
-        required: ["mobile", "job_address", "job_description", "urgency"],
         properties: {
           servicem8_vendor_uuid: { type: "string" },
           first_name: { type: "string" },
@@ -120,6 +125,18 @@ const start = async () => {
       },
     },
   }, async (request, reply) => {
+    console.log("[VAPI] create-job HIT", {
+      body: request.body,
+      headers: {
+        auth: request.headers.authorization ? "present" : "missing",
+      },
+    });
+
+    lastVapiCall = {
+      at: new Date().toISOString(),
+      body: request.body ?? null,
+    };
+
     const token = extractBearerToken(request.headers);
     if (token !== fastify.config.VAPI_BEARER_TOKEN) {
       return reply.status(401).send({ ok: false, error: "unauthorized" });
@@ -140,7 +157,11 @@ const start = async () => {
       return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
     }
     if (!mobile || !job_address || !job_description || !urgency) {
-      return reply.status(400).send({ ok: false, error: "missing required fields" });
+      fastify.log.error(
+        { hasBody: Boolean(request.body), mobile: Boolean(mobile), job_address: Boolean(job_address), job_description: Boolean(job_description), urgency: Boolean(urgency) },
+        "Vapi create-job missing required fields"
+      );
+      return reply.status(400).send({ ok: false, error: "tool_payload_empty" });
     }
 
     const sm8 = await getServiceM8Client(vendorUuid);
