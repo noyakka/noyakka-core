@@ -10,6 +10,26 @@ import { sendServiceM8Sms } from "./lib/servicem8-sms";
 
 let lastVapiCall: { at: string; body: unknown } | null = null;
 
+const extractVapiArgs = (body: any) => {
+  if (!body || typeof body !== "object") {
+    return body;
+  }
+
+  const wrapper = body.message?.toolCalls?.[0]?.function?.arguments;
+  if (wrapper && typeof wrapper === "object") {
+    return wrapper;
+  }
+  if (typeof wrapper === "string") {
+    try {
+      return JSON.parse(wrapper);
+    } catch {
+      return body;
+    }
+  }
+
+  return body;
+};
+
 const getBrisbaneHour = () => {
   const parts = new Intl.DateTimeFormat("en-AU", {
     timeZone: "Australia/Brisbane",
@@ -27,6 +47,99 @@ const getAvailabilityForToday = () => {
     return { available: true, window: "today", message: "We can attend today" };
   }
   return { available: false, window: "tomorrow", message: "Next availability is tomorrow" };
+};
+
+const getBrisbaneDateParts = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Brisbane",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+  return { weekday, hour, minute };
+};
+
+const computeAvailabilityWindow = (input: {
+  urgency: string;
+  nowLocal?: string;
+  preferredWindow?: string;
+  name?: string;
+}) => {
+  const now = input.nowLocal ? new Date(input.nowLocal) : new Date();
+  const { weekday, hour, minute } = getBrisbaneDateParts(now);
+  const isWeekend = weekday === "Sat" || weekday === "Sun";
+  const afterCutoff = hour > 14 || (hour === 14 && minute >= 30);
+  const preferred = input.preferredWindow === "morning" || input.preferredWindow === "arvo"
+    ? input.preferredWindow
+    : null;
+  const name = input.name || "there";
+
+  if (input.urgency === "quote_only") {
+    return {
+      ok: true,
+      window_code: "quote_only",
+      window_label: "Quote only",
+      sms_template: `G’day ${name} — we’ve got your request and will send a quote. – Noyakka`,
+    };
+  }
+
+  if (input.urgency === "this_week") {
+    return {
+      ok: true,
+      window_code: "this_week",
+      window_label: "This week",
+      sms_template: `G’day ${name} — we can attend this week. We’ll confirm timing shortly. – Noyakka`,
+    };
+  }
+
+  const buildWindow = (code: string, label: string, emergency: boolean) => ({
+    ok: true,
+    window_code: code,
+    window_label: label,
+    sms_template: emergency
+      ? `EMERGENCY: G’day ${name} — we can attend ${label}. Reply YES to confirm or NO for the next slot. – Noyakka`
+      : `G’day ${name} — we can attend ${label}. Reply YES to confirm or NO for the next slot. – Noyakka`,
+  });
+
+  const pickTodayWindow = () => {
+    if (preferred === "morning" && hour < 11) {
+      return buildWindow("today_morning", "Today morning (8–12)", input.urgency === "emergency");
+    }
+    return buildWindow("today_arvo", "Today arvo (1–4pm)", input.urgency === "emergency");
+  };
+
+  if (isWeekend) {
+    return buildWindow("next_business_morning", "Next business day morning (8–12)", input.urgency === "emergency");
+  }
+
+  if (afterCutoff) {
+    return buildWindow("tomorrow_morning", "Tomorrow morning (8–12)", input.urgency === "emergency");
+  }
+
+  return pickTodayWindow();
+};
+
+const normalizeMobile = (input: string) => {
+  const trimmed = input.trim();
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+  const normalized = hasPlus ? `+${digits}` : digits;
+
+  if (/^04\d{8}$/.test(normalized)) {
+    return `+61${normalized.slice(1)}`;
+  }
+  if (/^\+614\d{8}$/.test(normalized)) {
+    return normalized;
+  }
+  if (/^614\d{8}$/.test(normalized)) {
+    return `+${normalized}`;
+  }
+  return null;
 };
 
 // Start server
@@ -142,6 +255,109 @@ const start = async () => {
     return reply.send(getAvailabilityForToday());
   });
 
+  fastify.post("/vapi/availability-window", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["urgency"],
+        properties: {
+          urgency: { type: "string" },
+          now_local: { type: "string" },
+          preferred_window: { type: "string" },
+          servicem8_vendor_uuid: { type: "string" },
+          name: { type: "string" },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const token = extractBearerToken(request.headers);
+    if (token !== fastify.config.VAPI_BEARER_TOKEN) {
+      return reply.status(401).send({ ok: false, error: "unauthorized" });
+    }
+
+    const body = extractVapiArgs(request.body);
+    const urgency = body?.urgency;
+    if (!urgency) {
+      return reply.status(400).send({ ok: false, error: "missing_urgency" });
+    }
+
+    return reply.send(
+      computeAvailabilityWindow({
+        urgency,
+        nowLocal: body?.now_local,
+        preferredWindow: body?.preferred_window,
+        name: body?.name,
+      })
+    );
+  });
+
+  fastify.post("/vapi/send-window-sms", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["job_uuid", "to_mobile", "customer_first_name", "window_code", "window_label"],
+        properties: {
+          job_uuid: { type: "string" },
+          to_mobile: { type: "string" },
+          customer_first_name: { type: "string" },
+          window_code: { type: "string" },
+          window_label: { type: "string" },
+          servicem8_vendor_uuid: { type: "string" },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const token = extractBearerToken(request.headers);
+    if (token !== fastify.config.VAPI_BEARER_TOKEN) {
+      return reply.status(401).send({ ok: false, error: "unauthorized" });
+    }
+
+    const body = extractVapiArgs(request.body);
+    const vendorUuid = body?.servicem8_vendor_uuid ?? fastify.config.SERVICEM8_VENDOR_UUID;
+    if (!vendorUuid) {
+      return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
+    }
+
+    const { job_uuid, to_mobile, customer_first_name, window_label, window_code } = body || {};
+    if (!job_uuid || !to_mobile || !customer_first_name || !window_label || !window_code) {
+      return reply.status(400).send({ ok: false, error: "tool_payload_empty" });
+    }
+
+    const normalizedMobile = normalizeMobile(to_mobile);
+    if (!normalizedMobile) {
+      return reply.status(400).send({ ok: false, error: "invalid_mobile" });
+    }
+
+    try {
+      const message = `G’day ${customer_first_name} — we can attend ${window_label}. Reply YES to confirm or NO for the next slot. – Noyakka`;
+      await sendServiceM8Sms({
+        companyUuid: vendorUuid,
+        toMobile: normalizedMobile,
+        message,
+        regardingJobUuid: job_uuid,
+      });
+
+      const sm8 = await getServiceM8Client(vendorUuid);
+      if (fastify.config.SERVICEM8_STAFF_UUID) {
+        await sm8.postJson("/jobactivity.json", {
+          job_uuid,
+          staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+          type: "note",
+          note: `📅 Proposed window: ${window_label} (${window_code}) (auto)`,
+        });
+      }
+
+      return reply.send({ ok: true, sms_sent: true });
+    } catch (err: any) {
+      return reply.status(500).send({
+        ok: false,
+        error: "servicem8_sms_failed",
+        servicem8_status: err?.status,
+        servicem8_body: err?.data,
+      });
+    }
+  });
+
   // Vapi ping endpoint with auth
   fastify.post('/vapi/ping', async (request, reply) => {
     const token = extractBearerToken(request.headers);
@@ -170,26 +386,6 @@ const start = async () => {
       },
     },
   }, async (request, reply) => {
-    const extractVapiArgs = (body: any) => {
-      if (!body || typeof body !== "object") {
-        return body;
-      }
-
-      const wrapper = body.message?.toolCalls?.[0]?.function?.arguments;
-      if (wrapper && typeof wrapper === "object") {
-        return wrapper;
-      }
-      if (typeof wrapper === "string") {
-        try {
-          return JSON.parse(wrapper);
-        } catch {
-          return body;
-        }
-      }
-
-      return body;
-    };
-
     console.log("[VAPI] create-job HIT", {
       body: request.body,
       headers: {
@@ -233,24 +429,6 @@ const start = async () => {
 
     const sm8 = await getServiceM8Client(vendorUuid);
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
-
-    const normalizeMobile = (input: string) => {
-      const trimmed = input.trim();
-      const hasPlus = trimmed.startsWith("+");
-      const digits = trimmed.replace(/\D/g, "");
-      const normalized = hasPlus ? `+${digits}` : digits;
-
-      if (/^04\d{8}$/.test(normalized)) {
-        return `+61${normalized.slice(1)}`;
-      }
-      if (/^\+614\d{8}$/.test(normalized)) {
-        return normalized;
-      }
-      if (/^614\d{8}$/.test(normalized)) {
-        return `+${normalized}`;
-      }
-      return null;
-    };
 
     try {
       let firstName = first_name?.trim();
@@ -369,9 +547,13 @@ const start = async () => {
       let sms_failure_reason: string | null = null;
       let sms_message: string | null = null;
       let availability: { available: boolean; window: string; message: string } | null = null;
+      let window_code: string | null = null;
+      let window_label: string | null = null;
 
       if (urgency === "emergency") {
         sms_message = `We’ve logged your urgent job. A technician will contact you ASAP.`;
+        window_code = "today_arvo";
+        window_label = "Today arvo (1–4pm)";
         if (fastify.config.SERVICEM8_STAFF_UUID) {
           await sm8.postJson("/jobactivity.json", {
             job_uuid,
@@ -381,14 +563,30 @@ const start = async () => {
           });
         }
       } else if (urgency === "today") {
+        const availabilityWindow = computeAvailabilityWindow({
+          urgency,
+          name: firstName,
+        });
         availability = getAvailabilityForToday();
-        sms_message = availability.available
-          ? "We’ve logged your job. A technician will contact you today to confirm timing."
-          : "We’ve logged your job. Next availability is tomorrow, and we’ll confirm timing shortly.";
+        sms_message = availabilityWindow.sms_template;
+        window_code = availabilityWindow.window_code;
+        window_label = availabilityWindow.window_label;
       } else if (urgency === "this_week") {
-        sms_message = "We’ve logged your job for this week. We’ll confirm timing shortly.";
+        const availabilityWindow = computeAvailabilityWindow({
+          urgency,
+          name: firstName,
+        });
+        sms_message = availabilityWindow.sms_template;
+        window_code = availabilityWindow.window_code;
+        window_label = availabilityWindow.window_label;
       } else if (urgency === "quote_only") {
-        sms_message = "We’ve logged your request. Our team will follow up with a quote.";
+        const availabilityWindow = computeAvailabilityWindow({
+          urgency,
+          name: firstName,
+        });
+        sms_message = availabilityWindow.sms_template;
+        window_code = availabilityWindow.window_code;
+        window_label = availabilityWindow.window_label;
       }
 
       if (generated_job_id && sms_message) {
@@ -423,6 +621,8 @@ const start = async () => {
         job_uuid,
         generated_job_id,
         sms_sent,
+        window_code,
+        window_label,
         availability,
       });
     } catch (err: any) {
