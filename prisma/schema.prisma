@@ -25,3 +25,46 @@ model OAuthState {
   created_at   DateTime @default(now())
   expires_at   DateTime
 }
+
+model BusinessConfig {
+  servicem8_vendor_uuid String @id
+  business_name         String
+  timezone              String @default("Australia/Brisbane")
+  cutoff_time           String @default("14:30")
+  window_morning_start  String @default("08:00")
+  window_morning_end    String @default("12:00")
+  window_arvo_start     String @default("13:00")
+  window_arvo_end       String @default("16:00")
+  capacity_per_window   Int    @default(6)
+  emergency_reserve     Int    @default(2)
+  holds_ttl_minutes     Int    @default(15)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+}
+
+model WindowCapacity {
+  id                    String @id @default(cuid())
+  servicem8_vendor_uuid String
+  date                  String
+  window                String
+  capacity_max          Int
+  holds_count           Int @default(0)
+  confirmed_count       Int @default(0)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  @@unique([servicem8_vendor_uuid, date, window])
+}
+
+model WindowHold {
+  id                    String @id @default(cuid())
+  servicem8_vendor_uuid String
+  job_uuid              String
+  customer_mobile       String
+  date                  String
+  window                String
+  status                String   @default("PENDING")
+  expires_at            DateTime
+  created_at            DateTime @default(now())
+  confirmed_at          DateTime?
+}
