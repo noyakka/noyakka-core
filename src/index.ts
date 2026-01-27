@@ -105,7 +105,7 @@ const start = async () => {
     schema: {
       body: {
         type: "object",
-        required: ["servicem8_vendor_uuid", "first_name", "last_name", "mobile", "job_address", "job_description"],
+        required: ["first_name", "mobile", "job_address", "job_description", "urgency"],
         properties: {
           servicem8_vendor_uuid: { type: "string" },
           first_name: { type: "string" },
@@ -132,7 +132,10 @@ const start = async () => {
       job_description,
       urgency = "this_week"
     } = request.body as any;
-    if (!servicem8_vendor_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
+    if (!servicem8_vendor_uuid) {
+      return reply.status(400).send({ ok: false, error: "missing_servicem8_vendor_uuid" });
+    }
+    if (!first_name || !mobile || !job_address || !job_description || !urgency) {
       return reply.status(400).send({ ok: false, error: "missing required fields" });
     }
 
@@ -140,6 +143,32 @@ const start = async () => {
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
     try {
+      const fullName = `${first_name} ${last_name ?? ""}`.trim();
+      const uniqueName = `${fullName || "Noyakka Lead"} (${mobile})`;
+      let company_uuid: string | null = null;
+
+      try {
+        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(mobile)}`);
+        if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+          company_uuid = searchRes.data[0]?.uuid || searchRes.data[0]?.company_uuid || null;
+        }
+      } catch {
+        // ignore search failures and fall back to create
+      }
+
+      if (!company_uuid) {
+        const companyCreate = await sm8.postJson("/company.json", { name: uniqueName });
+        company_uuid = companyCreate.recordUuid ?? null;
+      }
+
+      if (!company_uuid) {
+        return reply.status(500).send({
+          ok: false,
+          error: "servicem8_error",
+          servicem8_body: "Failed to create or find company_uuid",
+        });
+      }
+
       const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
       const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID || undefined;
       const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID || undefined;
@@ -168,8 +197,8 @@ const start = async () => {
       await sm8.postJson("/jobcontact.json", {
         job_uuid,
         type: "Job Contact",
-        first_name,
-        last_name,
+        first: first_name,
+        last: last_name ?? "",
         mobile,
       });
 
