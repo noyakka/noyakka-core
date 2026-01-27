@@ -146,6 +146,24 @@ const start = async () => {
     const sm8 = await getServiceM8Client(vendorUuid);
     const mask = (value: string) => (value ? `${value.slice(0, 2)}***${value.slice(-2)}` : "");
 
+    const normalizeMobile = (input: string) => {
+      const trimmed = input.trim();
+      const hasPlus = trimmed.startsWith("+");
+      const digits = trimmed.replace(/\D/g, "");
+      const normalized = hasPlus ? `+${digits}` : digits;
+
+      if (/^04\d{8}$/.test(normalized)) {
+        return `+61${normalized.slice(1)}`;
+      }
+      if (/^\+614\d{8}$/.test(normalized)) {
+        return normalized;
+      }
+      if (/^614\d{8}$/.test(normalized)) {
+        return `+${normalized}`;
+      }
+      return null;
+    };
+
     try {
       let firstName = first_name?.trim();
       let lastName = last_name?.trim();
@@ -164,12 +182,17 @@ const start = async () => {
         lastName = "";
       }
 
+      const normalizedMobile = normalizeMobile(mobile);
+      if (!normalizedMobile) {
+        return reply.status(400).send({ ok: false, error: "invalid_mobile" });
+      }
+
       const fullName = `${firstName} ${lastName}`.trim();
-      const uniqueName = `${fullName || "Noyakka Lead"} (${mobile})`;
+      const uniqueName = `${fullName || "Noyakka Lead"} (${normalizedMobile})`;
       let company_uuid: string | null = null;
 
       try {
-        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(mobile)}`);
+        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(normalizedMobile)}`);
         if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
           company_uuid = searchRes.data[0]?.uuid || searchRes.data[0]?.company_uuid || null;
         }
@@ -198,7 +221,7 @@ const start = async () => {
         {
           queue_uuid,
           category_uuid,
-          mobile: mask(mobile),
+          mobile: mask(normalizedMobile),
           job_address: mask(job_address),
         },
         "ServiceM8 create-job payload metadata"
@@ -220,7 +243,7 @@ const start = async () => {
         type: "Job Contact",
         first: firstName,
         last: lastName,
-        mobile,
+        mobile: normalizedMobile,
       });
 
       if (fastify.config.SERVICEM8_STAFF_UUID) {
@@ -248,25 +271,30 @@ const start = async () => {
       }
 
       let sms_sent = false;
+      let sms_failure_reason: string | null = null;
       if (generated_job_id) {
         try {
           await sendServiceM8Sms({
             companyUuid: vendorUuid,
-            toMobile: mobile,
+            toMobile: normalizedMobile,
             message: `G’day ${firstName}. Your job #${generated_job_id} is logged. We’ll confirm timing shortly.`,
             regardingJobUuid: job_uuid,
           });
           sms_sent = true;
         } catch (err: any) {
-          if (fastify.config.SERVICEM8_STAFF_UUID) {
-            await sm8.postJson("/jobactivity.json", {
-              job_uuid,
-              staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
-              type: "note",
-              note: "⚠️ SMS confirmation failed",
-            });
-          }
+          sms_failure_reason = err?.status ? `ServiceM8 SMS failed (${err.status})` : "ServiceM8 SMS failed";
         }
+      } else {
+        sms_failure_reason = "SMS not sent: missing generated_job_id";
+      }
+
+      if (!sms_sent && sms_failure_reason && fastify.config.SERVICEM8_STAFF_UUID) {
+        await sm8.postJson("/jobactivity.json", {
+          job_uuid,
+          staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
+          type: "note",
+          note: `⚠️ SMS confirmation failed: ${sms_failure_reason}`,
+        });
       }
 
       return reply.send({
