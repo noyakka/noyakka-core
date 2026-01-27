@@ -256,9 +256,16 @@ const start = async () => {
         });
       }
 
-      const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
+      const brandedDescription = `NOYAKKA — ${job_description}`.trim();
       const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID || undefined;
       const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID || undefined;
+      if (!category_uuid) {
+        fastify.log.error("Missing SERVICEM8_CATEGORY_UUID for create-job");
+        return reply.status(500).send({
+          ok: false,
+          error: "missing_servicem8_category_uuid",
+        });
+      }
 
       fastify.log.info(
         {
@@ -276,7 +283,7 @@ const start = async () => {
         job_address,
         status: "Quote",
         ...(queue_uuid ? { queue_uuid } : {}),
-        ...(category_uuid ? { category_uuid } : {}),
+        category_uuid,
       });
 
       const job_uuid = jobCreate.recordUuid;
