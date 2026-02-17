@@ -4117,8 +4117,8 @@ const start = async () => {
   }, buildSendSmsHandler(fastify));
 
   try {
-    const port = Number(process.env.PORT) || 3000;
-    const host = process.env.HOST || '0.0.0.0';
+    const port = Number(process.env.PORT ?? 3000);
+    const host = "0.0.0.0";
     
     await fastify.listen({ port, host });
     console.log(`listening on http://${host}:${port}`);
