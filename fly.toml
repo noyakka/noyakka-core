@@ -6,6 +6,9 @@
 app = 'noyakka-core'
 primary_region = 'syd'
 
+[env]
+  GIT_SHA = "unknown"
+  BUILD_TIME = "unknown"
 
 [http_service]
   internal_port = 3000
@@ -20,7 +23,7 @@ primary_region = 'syd'
   destination = "/data"
 
 [deploy]
-  release_command = "npx prisma migrate deploy"
+  release_command = "sh -c 'if [ \"$SKIP_MIGRATIONS\" = \"1\" ]; then echo \"Skipping migrations\"; else npx prisma migrate deploy; fi'"
 
 [[vm]]
   memory = '1gb'

@@ -4,9 +4,19 @@
   "description": "Core backend API for Noyakka.",
   "main": "index.js",
   "scripts": {
+    "preinstall": "node scripts/check-node.js",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "check-node": "tsx scripts/check-node.ts",
+    "vapi:contract-tests": "tsx scripts/vapi_contract_tests.ts",
+    "vapi:prod-contract-test": "tsx scripts/vapi_prod_contract_test.ts",
+    "vapi:idempotency-test": "tsx scripts/vapi_idempotency_test.ts",
+    "local:smoke": "tsx scripts/local_smoke.ts",
+    "vapi:booking-smoke": "tsx scripts/vapi_booking_smoke.ts",
+    "dev:phase23-harness": "tsx scripts/dev_phase23_harness.ts",
+    "oauth:check": "tsx scripts/oauth_check.ts",
+    "oauth:tunnel": "ngrok http 3000"
   },
   "repository": {
     "type": "git",
@@ -15,6 +25,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.20.0 <19"
+  },
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/noyakka/noyakka-core/issues"
@@ -24,6 +37,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/env": "^5.0.3",
     "axios": "^1.13.3",
+    "dotenv": "^16.6.1",
     "fastify": "^5.7.2",
     "@prisma/client": "^5.22.0",
     "zod": "^4.3.6"
@@ -32,6 +46,7 @@
     "@types/node": "^25.0.10",
     "prisma": "^5.22.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
   }
 }

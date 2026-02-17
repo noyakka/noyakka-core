@@ -19,11 +19,12 @@ model ServiceM8Connection {
 }
 
 model OAuthState {
-  id           String   @id @default(cuid())
-  state        String   @unique
-  vendor_uuid  String?
-  created_at   DateTime @default(now())
-  expires_at   DateTime
+  id            String   @id @default(cuid())
+  state         String   @unique
+  vendor_uuid   String?
+  redirect_uri  String
+  created_at    DateTime @default(now())
+  expires_at    DateTime
 }
 
 model BusinessConfig {
@@ -42,14 +43,35 @@ model BusinessConfig {
   updated_at            DateTime @updatedAt
 }
 
+model VendorConfig {
+  servicem8_vendor_uuid String @id
+  business_name         String
+  timezone              String @default("Australia/Brisbane")
+  morning_capacity      Int
+  arvo_capacity         Int
+  emergency_reserve     Int    @default(2)
+  working_days          String @default("[\"mon\",\"tue\",\"wed\",\"thu\",\"fri\"]")
+  cutoff_today_arvo     String @default("14:30")
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+}
+
+model AllocationWindowMap {
+  id                    String   @id @default(cuid())
+  servicem8_vendor_uuid String   @unique
+  morning_window_uuid   String?
+  arvo_window_uuid      String?
+  raw_windows_json      String?
+  updated_at            DateTime @updatedAt
+}
+
 model WindowCapacity {
   id                    String @id @default(cuid())
   servicem8_vendor_uuid String
   date                  String
   window                String
-  capacity_max          Int
-  holds_count           Int @default(0)
-  confirmed_count       Int @default(0)
+  max_capacity          Int
+  booked_count          Int @default(0)
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 
@@ -67,4 +89,74 @@ model WindowHold {
   expires_at            DateTime
   created_at            DateTime @default(now())
   confirmed_at          DateTime?
+}
+
+model JobWindowBooking {
+  job_uuid              String @id
+  servicem8_vendor_uuid String
+  date                  String
+  window                String
+  allocation_uuid       String
+  status                String   @default("confirmed")
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+}
+
+model ToolRun {
+  id          String   @id @default(uuid())
+  vendor_uuid String
+  endpoint    String
+  call_id     String
+  status      String
+  result_json String?
+  error_code  String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([vendor_uuid, endpoint, call_id])
+}
+
+model PendingDecision {
+  id                    String   @id @default(cuid())
+  job_uuid              String   @unique
+  allocation_uuid       String?
+  servicem8_vendor_uuid String
+  customer_mobile       String
+  tradie_mobile         String
+  flags_json            String
+  distance_km           Float?
+  distance_band         String?
+  template_a            String
+  template_b            String
+  created_at            DateTime @default(now())
+  expires_at            DateTime
+  resolved_action       String?
+  resolved_at           DateTime?
+}
+
+model OverrunMonitorState {
+  allocation_uuid            String   @id
+  job_uuid                   String?
+  staff_uuid                 String?
+  allocation_date            String?
+  overrun_detected_at        DateTime?
+  delay_minutes              Int?
+  delay_sms_sent_at          DateTime?
+  thirty_away_sms_sent_at    DateTime?
+  major_alert_sent_at        DateTime?
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+}
+
+model OverrunSmsEvent {
+  id                     String   @id @default(cuid())
+  source_allocation_uuid String
+  target_allocation_uuid String?
+  target_job_uuid        String
+  sms_type               String
+  last_sms_sent_at       DateTime
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  @@unique([source_allocation_uuid, target_job_uuid, sms_type])
 }

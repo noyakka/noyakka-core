@@ -1,9 +1,16 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { randomUUID } from "crypto";
 import { getServiceM8Client } from "../lib/servicem8-oauth";
 import { sendServiceM8Sms } from "../lib/servicem8-sms";
+import { extractVapiArgs } from "../lib/vapi/extract";
+import { normalizeVapiArgs, normalizeUrgency as normalizeVapiUrgency } from "../lib/vapi/normalize";
+import { vapiCreateLeadSchema } from "../lib/vapi/validate";
+import { buildValidationPayload, finalizeVapi, logVapiStart } from "../lib/vapi/runtime";
+import { finishToolRunFailure, finishToolRunSuccess, getOrStartToolRun } from "../lib/idempotency";
 
 type CreateLeadBody = {
   servicem8_vendor_uuid?: string;
+  company_uuid?: string;
   first_name?: string;
   last_name?: string;
   mobile?: string;
@@ -40,28 +47,73 @@ const maskEmail = (value?: string) => {
 export const buildCreateLeadHandler =
   (fastify: FastifyInstance) =>
   async (request: FastifyRequest<{ Body: CreateLeadBody }>, reply: FastifyReply) => {
+    const request_id = randomUUID();
+    const started_at = Date.now();
+    const endpoint = "/vapi/create-lead";
+    const { args, meta } = extractVapiArgs(request.body);
+    const normalized = normalizeVapiArgs({ ...args, ...meta });
+    const context = {
+      request_id,
+      endpoint,
+      vendor_uuid: normalized.vendor_uuid,
+      call_id: normalized.call_id ?? meta.call_id,
+      tool_name: meta.tool_name,
+      normalized,
+      started_at,
+    };
+
+    logVapiStart(fastify, context);
+
     const token = extractBearerToken(request.headers);
     if (token !== fastify.config.VAPI_BEARER_TOKEN) {
-      return reply.status(401).send({ ok: false, error: "unauthorized" });
+      return finalizeVapi(
+        fastify,
+        reply,
+        context,
+        { ok: false, error_code: "UNAUTHORIZED", message: "Unauthorized" },
+        false,
+        "UNAUTHORIZED"
+      );
     }
 
-    const {
-      servicem8_vendor_uuid: tenant_vendor_uuid,
-      first_name,
-      last_name,
-      mobile,
-      email,
-      job_address,
-      job_description,
-      urgency = "this_week",
-      call_summary = "",
-    } = request.body || {};
-
-    if (!tenant_vendor_uuid || !first_name || !last_name || !mobile || !job_address || !job_description) {
-      return reply.status(400).send({ ok: false, error: "missing required fields" });
+    if (args?.urgency && !normalizeVapiUrgency(args.urgency)) {
+      return finalizeVapi(
+        fastify,
+        reply,
+        context,
+        { ok: false, error_code: "INVALID_URGENCY", message: "Unsupported urgency" },
+        false,
+        "INVALID_URGENCY"
+      );
     }
 
-    const sm8 = await getServiceM8Client(tenant_vendor_uuid);
+    if (!normalized.call_id) {
+      const payload = {
+        ok: false,
+        error_code: "VALIDATION_ERROR",
+        message: "Missing call_id",
+        missing_fields: ["call_id"],
+        normalized_preview: normalized,
+      };
+      return finalizeVapi(fastify, reply, context, payload, false, payload.error_code);
+    }
+
+    const validation = vapiCreateLeadSchema.safeParse(normalized);
+    if (!validation.success) {
+      const payload = buildValidationPayload(normalized, validation.error);
+      return finalizeVapi(fastify, reply, context, payload, false, payload.error_code as string);
+    }
+
+    const { run, replayResult } = await getOrStartToolRun(
+      validation.data.vendor_uuid,
+      endpoint,
+      normalized.call_id
+    );
+    if (replayResult) {
+      return finalizeVapi(fastify, reply, context, replayResult as any, true);
+    }
+
+    const sm8 = await getServiceM8Client(validation.data.vendor_uuid);
     const postWithLog = async (path: string, body: Record<string, unknown>) => {
       try {
         return await sm8.postJson(path, body);
@@ -85,12 +137,12 @@ export const buildCreateLeadHandler =
     };
 
     try {
-      const name = `${first_name} ${last_name}`.trim();
-      const uniqueName = `${name} (${mobile})`;
+      const name = `${validation.data.first_name} ${validation.data.last_name}`.trim();
+      const uniqueName = `${name} (${validation.data.mobile})`;
 
       let company_uuid: string | null = null;
       try {
-        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(mobile)}`);
+        const searchRes = await sm8.getJson(`/company.json?search=${encodeURIComponent(validation.data.mobile)}`);
         if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
           company_uuid = searchRes.data[0].uuid || searchRes.data[0].company_uuid || null;
         }
@@ -105,19 +157,29 @@ export const buildCreateLeadHandler =
         company_uuid = companyCreate.recordUuid;
       }
       if (!company_uuid) {
-        return reply.status(500).send({ ok: false, error: "servicem8_error" });
+        const payload = {
+          ok: false,
+          error_code: "INTERNAL_ERROR",
+          message: "ServiceM8 company lookup failed",
+        };
+        await finishToolRunFailure(run.id, "INTERNAL_ERROR");
+        return finalizeVapi(fastify, reply, context, payload, false, "INTERNAL_ERROR");
       }
 
       const queue_uuid = fastify.config.SERVICEM8_QUEUE_UUID || undefined;
       const category_uuid = fastify.config.SERVICEM8_CATEGORY_UUID || undefined;
-      const brandedDescription = `[NOYAKKA] ${job_description}`.trim();
+      const brandedDescription = `[NOYAKKA] ${validation.data.job_description}`.trim();
+      const jobAddress = validation.data.address?.full
+        ?? [validation.data.address?.street_number, validation.data.address?.street_name, validation.data.address?.suburb]
+          .filter(Boolean)
+          .join(" ");
 
       fastify.log.info(
         {
           queue_uuid,
           category_uuid,
-          mobile: mask(mobile),
-          job_address: mask(job_address),
+          mobile: mask(validation.data.mobile),
+          job_address: mask(jobAddress),
         },
         "ServiceM8 create-lead payload metadata"
       );
@@ -125,7 +187,7 @@ export const buildCreateLeadHandler =
       const jobCreate = await postWithLog("/job.json", {
         company_uuid,
         job_description: brandedDescription,
-        job_address,
+        job_address: jobAddress,
         status: "Quote",
         ...(queue_uuid ? { queue_uuid } : {}),
         ...(category_uuid ? { category_uuid } : {}),
@@ -133,16 +195,22 @@ export const buildCreateLeadHandler =
 
       const job_uuid = jobCreate.recordUuid;
       if (!job_uuid) {
-        return reply.status(500).send({ ok: false, error: "servicem8_error" });
+        const payload = {
+          ok: false,
+          error_code: "INTERNAL_ERROR",
+          message: "ServiceM8 job creation failed",
+        };
+        await finishToolRunFailure(run.id, "INTERNAL_ERROR");
+        return finalizeVapi(fastify, reply, context, payload, false, "INTERNAL_ERROR");
       }
 
       await postWithLog("/jobcontact.json", {
         job_uuid,
         type: "Job Contact",
-        first_name: first_name,
-        last_name: last_name,
-        mobile: mobile,
-        email: email,
+        first_name: validation.data.first_name,
+        last_name: validation.data.last_name,
+        mobile: validation.data.mobile,
+        email: validation.data.email,
       });
 
       if (fastify.config.SERVICEM8_STAFF_UUID) {
@@ -150,7 +218,7 @@ export const buildCreateLeadHandler =
           job_uuid,
           staff_uuid: fastify.config.SERVICEM8_STAFF_UUID,
           type: "note",
-          note: `📞 Booked by Noyakka AI\nUrgency: ${urgency}\nSummary: ${call_summary}\nDescription: ${job_description}`,
+          note: `📞 Booked by Noyakka AI\nUrgency: ${validation.data.urgency}\nSummary: ${validation.data.call_summary ?? ""}\nDescription: ${validation.data.job_description}`,
         });
       }
 
@@ -169,11 +237,11 @@ export const buildCreateLeadHandler =
         );
       }
 
-      const smsMessage = `G’day ${first_name}. Job #${generated_job_id ?? "pending"} is logged. We’ll confirm timing shortly.`;
+      const smsMessage = `G’day ${validation.data.first_name}. Job #${generated_job_id ?? "pending"} is logged. We’ll confirm timing shortly.`;
       try {
         await sendServiceM8Sms({
-          companyUuid: tenant_vendor_uuid,
-          toMobile: mobile,
+          companyUuid: validation.data.vendor_uuid,
+          toMobile: validation.data.mobile,
           message: smsMessage,
           regardingJobUuid: job_uuid,
         });
@@ -184,18 +252,23 @@ export const buildCreateLeadHandler =
         );
       }
 
-      return reply.send({
+      const payload = {
         ok: true,
         job_uuid,
         generated_job_id,
         company_uuid,
-      });
+      };
+      await finishToolRunSuccess(run.id, payload);
+      return finalizeVapi(fastify, reply, context, payload, true);
     } catch (err: any) {
-      return reply.status(500).send({
+      const payload = {
         ok: false,
-        error: "servicem8_error",
+        error_code: "INTERNAL_ERROR",
+        message: "ServiceM8 error",
         servicem8_status: err.status,
         servicem8_body: err.data,
-      });
+      };
+      await finishToolRunFailure(run.id, "INTERNAL_ERROR");
+      return finalizeVapi(fastify, reply, context, payload, false, "INTERNAL_ERROR");
     }
   };

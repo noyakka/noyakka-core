@@ -1,4 +1,4 @@
-import { getServiceM8AccessToken } from "./servicem8-oauth";
+import { getServiceM8Auth } from "./servicem8-oauth";
 
 type SendSmsInput = {
   companyUuid: string;
@@ -15,14 +15,19 @@ export const sendServiceM8Sms = async ({
   message,
   regardingJobUuid,
 }: SendSmsInput) => {
-  const accessToken = await getServiceM8AccessToken(companyUuid);
+  const auth = await getServiceM8Auth(companyUuid);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (auth.apiKey) {
+    headers["X-API-Key"] = auth.apiKey;
+  } else if (auth.bearer) {
+    headers["Authorization"] = `Bearer ${auth.bearer}`;
+  }
 
   const res = await fetch(`${BASE_URL}/platform_service_sms`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       to: toMobile,
       message,
@@ -30,11 +35,13 @@ export const sendServiceM8Sms = async ({
     }),
   });
 
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     const err: any = new Error("ServiceM8 SMS failed");
     err.status = res.status;
     err.data = text;
     throw err;
   }
+
+  return { status: res.status, body: text };
 };
