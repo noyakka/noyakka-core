@@ -1116,8 +1116,6 @@ const start = async () => {
     logger: true
   });
 
-  fastify.get("/health", async () => ({ ok: true }));
-
 
   // Register CORS
   await fastify.register(cors, {
