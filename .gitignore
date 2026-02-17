@@ -3,3 +3,12 @@ node_modules
 .env.*
 dist
 .DS_Store
+
+# local secrets
+.env
+
+# deps
+node_modules/
+
+# local sqlite
+prisma/dev.db
